@@ -1,57 +1,44 @@
 'use strict';
 
 var path = process.cwd();
-var ClickHandler = require(path + '/app/controllers/clickHandler.server.js');
+var request = require('request');
+var SearchHandler = require(path + '/app/controllers/searchHandler.js');
 
 module.exports = function (app, passport) {
-
-	function isLoggedIn (req, res, next) {
-		if (req.isAuthenticated()) {
-			return next();
-		} else {
-			res.redirect('/login');
-		}
-	}
-
-	var clickHandler = new ClickHandler();
-
+	var pixabayAPI = 'https://pixabay.com/api/?key=' + process.env.API_KEY;
+	var searchHandler = new SearchHandler();
+	
 	app.route('/')
-		.get(isLoggedIn, function (req, res) {
+		.get(function (req, res) {
 			res.sendFile(path + '/public/index.html');
 		});
-
-	app.route('/login')
+		
+	app.route('/api/imagesearch/:query')
 		.get(function (req, res) {
-			res.sendFile(path + '/public/login.html');
+			//Getting queries
+			var search = req.params.query;
+			var	offset = req.query.offset || 1;
+			
+			//saving search phrases
+			searchHandler.saveSearch(req, res, search);
+			//TODO: over page using totalHits or total
+			request (pixabayAPI + '&q=' + search + '&page=' + offset, function(error, response, body) {
+				if ( error ) { res.send('Something wrong, try again later!')}
+				var rawResults = JSON.parse(body).hits;
+				res.json(rawResults.map(function(hit) {
+					return {
+						'url': hit.pageURL,
+						'tags': hit.tags,
+						'thumbnail': hit.previewURL,
+						'user': hit.userImageURL
+					};
+				}));
+			});
 		});
 
-	app.route('/logout')
-		.get(function (req, res) {
-			req.logout();
-			res.redirect('/login');
+	app.route('/api/recent')
+		.get(function(req, res) {
+			searchHandler.getSearch(req, res);
 		});
-
-	app.route('/profile')
-		.get(isLoggedIn, function (req, res) {
-			res.sendFile(path + '/public/profile.html');
-		});
-
-	app.route('/api/:id')
-		.get(isLoggedIn, function (req, res) {
-			res.json(req.user.github);
-		});
-
-	app.route('/auth/github')
-		.get(passport.authenticate('github'));
-
-	app.route('/auth/github/callback')
-		.get(passport.authenticate('github', {
-			successRedirect: '/',
-			failureRedirect: '/login'
-		}));
-
-	app.route('/api/:id/clicks')
-		.get(isLoggedIn, clickHandler.getClicks)
-		.post(isLoggedIn, clickHandler.addClick)
-		.delete(isLoggedIn, clickHandler.resetClicks);
+	
 };
